@@ -1,13 +1,13 @@
 [package]
 name = "baid58"
 version = "0.1.0"
-description = "Base58 encoding extended with HRP and mnemonic checksum information"
+description = "Easy-to-check Base58 encoding for identities"
 keywords = ["base58", "encoding", "mnemonic"]
 categories = ["encoding", "value-formatting", "command-line-utilities"]
 readme = "README.md"
 authors = ["Dr. Maxim Orlovsky <orlovsky@ubideco.org>"]
-homepage = "https://github.com/ubideco/rust-baid58"
-repository = "https://github.com/ubideco/rust-baid58"
+homepage = "https://github.com/UBIDECO/rust-baid58"
+repository = "https://github.com/UBIDECO/rust-baid58"
 rust-version = "1.60.0"
 edition = "2021"
 license = "Apache-2.0"
