@@ -16,7 +16,7 @@ see and verify) and human-readable information about the value.**_
 
 ## Overview
 
-A lot of [binary-to-text encoding formats](t2b) exists today, which are designed
+A lot of [binary-to-text encoding formats][b2t] exists today, which are designed
 for a different specific cases. Why another one? Well, since we have a need to
 encode short-length unique identifiers - like file or data structure hashes,
 cryptographic public keys, digital identities and certificates etc..
@@ -95,6 +95,17 @@ this is exactly what Baid58 adds.
 
 ### Why not multiformats
 
+[Multiformats] by Protocol Labs are a way to represent different binary-to-text
+encodings and values in a consistent way. However, there are some reasons to
+avoid their use for the case we need:
+- they do not provide any checksum information;
+- they do not provide any human-readable information;
+- they introduce support to multiple encodings while we need just a single one
+  which matches our criteria;
+- they are not widely adopted;
+- they use non-fixed length integer encoding which is a bad practice from the
+  point of view of deterministic computing and [strict types] (where Baid58 is
+  used).
 
 ## Using crate
 
@@ -129,3 +140,5 @@ Example formatting strings from the above:
 
 [b2t]: https://en.wikipedia.org/wiki/Binary-to-text_encoding
 [tothink.com]: http://web.archive.org/web/20101031205747/http://www.tothink.com/mnemonic/
+[multiformats]: https://github.com/multiformats
+[strict types]: https://strict-types.org
