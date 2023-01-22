@@ -71,7 +71,7 @@ see and verify) and human-readable information about the value.
 
 ### Why not Bech32
 
-First, Bech32 strings are usually too long, while have no real advantages:
+Bech32 strings are usually too long, while have no real advantages:
 * it is said they do not contain characters which can be confused - but this is
   not a problem when a checksum is used and checked both visually and by a
   computer, while ...
@@ -86,12 +86,12 @@ First, Bech32 strings are usually too long, while have no real advantages:
   QR code for both Base58-encoded 160-bit bitcoin P2SH and Bech32-encoded 
   160-bit P2WPK address have exactly the same size - if a user hasn't forgotten
   to uppercase the address value - or Bech32 QR code is larger if the uppercase
-  was not maid!
+  was not made!
 
 As a result, we are getting longer strings to read, non-standard wierd 
 encoding, false feel of safety - and no advantages over Base58, which only needs
 efficient and clearly-distinguished checksum and value type information - and
-this is exactly what Baid58 adds.
+this is exactly what Baid58 does.
 
 ### Why not multiformats
 
