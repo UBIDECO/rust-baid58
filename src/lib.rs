@@ -353,4 +353,5 @@ pub trait ToBaid58<const LEN: usize> {
 
     fn to_baid58_payload(&self) -> [u8; LEN];
     fn to_baid58(&self) -> Baid58<LEN> { Baid58::with(Self::HRI, self.to_baid58_payload()) }
+    fn to_baid58_string(&self) -> String { self.to_baid58().to_string() }
 }
