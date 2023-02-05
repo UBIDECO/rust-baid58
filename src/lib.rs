@@ -96,7 +96,7 @@ impl<const LEN: usize> Baid58<LEN> {
 /// - `0` - prefix with capitalized mnemonic separated with zero from the main value;
 /// - `-` - prefix with dashed separated mnemonic;
 /// - `+` - prefix with underscore separated mnemonic;
-/// - `.` - suffix with HRI representing it as a file extension;
+/// - `.N` - suffix with HRI representing it as a file extension (N can be any number);
 /// - `<` - prefix with HRI; requires mnemonic prefix flag or defaults it to `0` and separates from
 ///   the mnemonic using fill character and width;
 /// - `^` - prefix with HRI without mnemonic, using fill character as separator or defaulting to
@@ -374,4 +374,67 @@ pub trait ToBaid58<const LEN: usize> {
     fn to_baid58_payload(&self) -> [u8; LEN];
     fn to_baid58(&self) -> Baid58<LEN> { Baid58::with(Self::HRI, self.to_baid58_payload()) }
     fn to_baid58_string(&self) -> String { self.to_baid58().to_string() }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use super::*;
+
+    struct Id([u8; 32]);
+
+    impl Id {
+        pub fn new(s: &str) -> Id {
+            let hash = blake3::Hasher::new().update(s.as_bytes()).finalize();
+            Id(*hash.as_bytes())
+        }
+    }
+
+    impl From<[u8; 32]> for Id {
+        fn from(value: [u8; 32]) -> Self { Id(value) }
+    }
+
+    impl ToBaid58<32> for Id {
+        const HRI: &'static str = "id";
+        fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
+    }
+    impl FromBaid58<32> for Id {}
+
+    impl Display for Id {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { Display::fmt(&self.to_baid58(), f) }
+    }
+
+    impl FromStr for Id {
+        type Err = Baid58ParseError;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> { Id::from_baid58_str(s) }
+    }
+
+    #[test]
+    fn display() {
+        let id = Id::new("some information");
+        assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
+        assert_eq!(
+            &format!("{id:#}"),
+            "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia"
+        );
+        assert_eq!(&format!("{id:.1}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id");
+        assert_eq!(
+            &format!("{id::^#}"),
+            "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia"
+        );
+        assert_eq!(
+            &format!("{id:-.1}"),
+            "sabine-harmony-olivia-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id"
+        );
+        assert_eq!(
+            &format!("{id:<0}"),
+            "id SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
+        );
+        assert_eq!(
+            &format!("{id:_<+}"),
+            "id_sabine_harmony_olivia_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
+        );
+    }
 }
