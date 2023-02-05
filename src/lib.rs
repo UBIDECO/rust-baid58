@@ -34,29 +34,47 @@ pub enum MnemonicCase {
     Snake,
 }
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Baid58<const LEN: usize> {
     hri: &'static str,
     payload: [u8; LEN],
+    checksum: Option<u32>,
+    mnemonic: Option<String>,
 }
 
 impl<const LEN: usize> Baid58<LEN> {
-    pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self { Self { hri, payload } }
+    pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self {
+        Self {
+            hri,
+            payload,
+            checksum: None,
+            mnemonic: None,
+        }
+    }
 
     pub const fn human_identifier(&self) -> &'static str { self.hri }
 
-    pub fn checksum(&self) -> u32 {
+    pub fn checksum(&mut self) -> u32 {
+        if let Some(checksum) = self.checksum {
+            return checksum;
+        }
         let key = blake3::Hasher::new().update(self.hri.as_bytes()).finalize();
         let mut hasher = blake3::Hasher::new_keyed(key.as_bytes());
         hasher.update(&self.payload);
         let hash = *hasher.finalize().as_bytes();
-        u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]])
+        let checksum = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
+        self.checksum = Some(checksum);
+        checksum
     }
 
-    pub fn mnemonic(&self) -> String { self.mnemonic_with_case(MnemonicCase::Kebab) }
+    pub fn mnemonic(&mut self) -> String { self.mnemonic_with_case(MnemonicCase::Kebab) }
 
-    pub fn mnemonic_with_case(&self, case: MnemonicCase) -> String {
-        let mn = mnemonic::to_string(self.checksum().to_le_bytes());
+    pub fn mnemonic_with_case(&mut self, case: MnemonicCase) -> String {
+        let mn = self.mnemonic.clone().unwrap_or_else(|| {
+            let mnemonic = mnemonic::to_string(self.checksum().to_le_bytes());
+            self.mnemonic = Some(mnemonic.clone());
+            mnemonic
+        });
         match case {
             MnemonicCase::Pascal => {
                 let mut res = String::with_capacity(mn.len());
@@ -131,7 +149,7 @@ impl<const LEN: usize> Display for Baid58<LEN> {
         }
 
         if let Mnemo::Prefix(prefix) = mnemo {
-            f.write_str(&self.mnemonic_with_case(prefix))?;
+            f.write_str(&self.clone().mnemonic_with_case(prefix))?;
             match prefix {
                 MnemonicCase::Pascal => f.write_str("0")?,
                 MnemonicCase::Kebab => f.write_str("-")?,
@@ -142,7 +160,7 @@ impl<const LEN: usize> Display for Baid58<LEN> {
         f.write_str(&self.payload.to_base58())?;
 
         if let Mnemo::Suffix = mnemo {
-            write!(f, "#{}", &self.mnemonic_with_case(MnemonicCase::Kebab))?;
+            write!(f, "#{}", &self.clone().mnemonic_with_case(MnemonicCase::Kebab))?;
         }
 
         if let Hrp::Suffix(ref suffix) = hrp {
@@ -330,6 +348,8 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         Ok(Self::from_baid58(Baid58 {
             hri: Self::HRI,
             payload: payload.ok_or(Baid58ParseError::ValueAbsent(s.to_owned()))?,
+            checksum: None,
+            mnemonic: None,
         })
         .expect("HRI is checked"))
     }
