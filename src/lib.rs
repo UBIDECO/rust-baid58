@@ -318,9 +318,9 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
             }
         }
 
-        if matches!(hri, Some(hri) if hri != Self::HRP) {
+        if matches!(hri, Some(hri) if hri != Self::HRI) {
             return Err(Baid58ParseError::InvalidHri {
-                expected: Self::HRP,
+                expected: Self::HRI,
                 found: hri.unwrap().to_owned(),
             });
         }
@@ -328,16 +328,16 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         // TODO: Check checksum
 
         Ok(Self::from_baid58(Baid58 {
-            hri: Self::HRP,
+            hri: Self::HRI,
             payload: payload.ok_or(Baid58ParseError::ValueAbsent(s.to_owned()))?,
         })
         .expect("HRI is checked"))
     }
 
     fn from_baid58(baid: Baid58<LEN>) -> Result<Self, Baid58HriError> {
-        if baid.hri != Self::HRP {
+        if baid.hri != Self::HRI {
             Err(Baid58HriError {
-                expected: Self::HRP,
+                expected: Self::HRI,
                 found: baid.hri,
             })
         } else {
@@ -347,10 +347,10 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
 }
 
 pub trait ToBaid58<const LEN: usize> {
-    const HRP: &'static str;
+    const HRI: &'static str;
     // TODO: Uncomment once generic_const_exprs is out
     // const LEN: usize;
 
     fn to_baid58_payload(&self) -> [u8; LEN];
-    fn to_baid58(&self) -> Baid58<LEN> { Baid58::with(Self::HRP, self.to_baid58_payload()) }
+    fn to_baid58(&self) -> Baid58<LEN> { Baid58::with(Self::HRI, self.to_baid58_payload()) }
 }
