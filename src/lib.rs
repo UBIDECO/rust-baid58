@@ -191,6 +191,7 @@ pub enum Baid58ParseError {
     InvalidBase58Character(char, usize),
     /// The input had invalid length.
     InvalidBase58Length,
+    Unparsable(String),
 }
 
 impl From<FromBase58Error> for Baid58ParseError {
@@ -237,6 +238,7 @@ impl Display for Baid58ParseError {
             Baid58ParseError::InvalidBase58Length => {
                 f.write_str("invalid length of the Base58 encoded value")
             }
+            Baid58ParseError::Unparsable(s) => write!(f, "non-parsable Baid58 string '{s}"),
         }
     }
 }
@@ -306,12 +308,11 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
             })
             .collect::<String>();
 
-        let mut hri: Option<&str> = None;
         let mut payload: Option<[u8; LEN]> = None;
-        let mut mnemonic = vec![];
-        for (index, component) in
-            filtered.split(|c: char| !c.is_ascii_alphanumeric() || c == '0').enumerate()
-        {
+        let mut prefix = vec![];
+        let mut suffix = vec![];
+        let mut cursor = &mut prefix;
+        for component in filtered.split(|c: char| !c.is_ascii_alphanumeric() || c == '0') {
             if component.len() > 8 {
                 // this is a value
                 if payload.is_some() {
@@ -327,13 +328,35 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
                 }
                 payload = Some([0u8; LEN]);
                 payload.as_mut().map(|p| p.copy_from_slice(&value[..]));
-            } else if count == 1 {
+                cursor = &mut suffix;
+            } else if count == 0 {
                 return Err(Baid58ParseError::ValueTooShort(component.len()));
-            } else if (index == 0 || index == count - 1) && count > 2 && hri.is_none() {
-                hri = Some(component);
             } else {
-                mnemonic.push(component);
+                cursor.push(component)
             }
+        }
+
+        let mut hri: Option<&str> = None;
+        let mut mnemonic = vec![];
+        match (prefix.len(), suffix.len()) {
+            (0, 0) => {}
+            (3 | 4, 0) => {
+                hri = prefix.get(0).map(|s| *s);
+                mnemonic.extend(&prefix[1..])
+            }
+            (0, 3 | 4) => {
+                mnemonic.extend(&suffix[..3]);
+                hri = suffix.get(4).map(|s| *s);
+            }
+            (1, 0 | 3..) => {
+                hri = prefix.pop();
+                mnemonic.extend(suffix);
+            }
+            (0 | 3.., 1) => {
+                mnemonic.extend(prefix);
+                hri = suffix.pop();
+            }
+            _ => return Err(Baid58ParseError::Unparsable(s.to_owned())),
         }
 
         if matches!(hri, Some(hri) if hri != Self::HRI) {
@@ -382,6 +405,7 @@ mod test {
 
     use super::*;
 
+    #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
     struct Id([u8; 32]);
 
     impl Id {
@@ -435,6 +459,40 @@ mod test {
         assert_eq!(
             &format!("{id:_<+}"),
             "id_sabine_harmony_olivia_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
+        );
+    }
+
+    #[test]
+    fn from_str() {
+        let id = Id::new("some information");
+        assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs").unwrap(), id);
+        assert_eq!(
+            Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia")
+                .unwrap(),
+            id
+        );
+        assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id").unwrap(), id);
+        assert_eq!(
+            Id::from_str("id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia")
+                .unwrap(),
+            id
+        );
+        assert_eq!(
+            Id::from_str("sabine-harmony-olivia-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id")
+                .unwrap(),
+            id
+        );
+        // TODO: Fix parsing or standard
+        /*
+        assert_eq!(
+            Id::from_str("id SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
+                .unwrap(),
+            id
+        );*/
+        assert_eq!(
+            Id::from_str("id_sabine_harmony_olivia_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
+                .unwrap(),
+            id
         );
     }
 }
