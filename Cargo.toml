@@ -1,6 +1,6 @@
 [package]
 name = "baid58"
-version = "0.2.0"
+version = "0.3.0"
 description = "Easy-to-check Base58 encoding for identities"
 keywords = ["base58", "encoding", "mnemonic"]
 categories = ["encoding", "value-formatting", "command-line-utilities"]
