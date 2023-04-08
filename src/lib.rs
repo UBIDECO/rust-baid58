@@ -412,7 +412,6 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
                 return Err(Baid58ParseError::InvalidChecksumLen(checksum.len()));
             }
             let checksum = u32::from_le_bytes([checksum[0], checksum[1], checksum[2], checksum[3]]);
-            eprintln!("{checksum}");
             if baid58.checksum() != checksum {
                 return Err(Baid58ParseError::ChecksumMismatch {
                     expected: baid58.checksum(),
