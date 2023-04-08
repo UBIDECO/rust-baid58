@@ -27,6 +27,8 @@ use std::fmt::{Alignment, Display, Formatter};
 
 use base58::{FromBase58, FromBase58Error, ToBase58};
 
+pub const HRI_MAX_LEN: usize = 8;
+
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub enum MnemonicCase {
     Pascal,
@@ -43,7 +45,12 @@ pub struct Baid58<const LEN: usize> {
 }
 
 impl<const LEN: usize> Baid58<LEN> {
+    /// # Panics
+    ///
+    /// If HRI static string is longer than
     pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self {
+        debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
+        debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
         Self {
             hri,
             payload,
@@ -292,14 +299,15 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
     fn from_baid58_str(s: &str) -> Result<Self, Baid58ParseError> {
         let mut prev: Option<char> = None;
         let mut count = 0;
+        // Remove repeated separator characters
         let filtered = s
             .chars()
             .filter_map(|c| {
-                let non_alpha = !c.is_ascii_alphanumeric();
-                if non_alpha || c == '0' {
+                let is_separator = !c.is_ascii_alphanumeric() || c == '0';
+                if is_separator {
                     count += 1;
                 }
-                if Some(c) == prev && non_alpha {
+                if Some(c) == prev && is_separator {
                     None
                 } else {
                     prev = Some(c);
@@ -313,7 +321,7 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         let mut suffix = vec![];
         let mut cursor = &mut prefix;
         for component in filtered.split(|c: char| !c.is_ascii_alphanumeric() || c == '0') {
-            if component.len() > 8 {
+            if component.len() > LEN {
                 // this is a value
                 if payload.is_some() {
                     return Err(Baid58ParseError::NonValueTooLong(component.len()));
@@ -347,6 +355,13 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
             (0, 3 | 4) => {
                 mnemonic.extend(&suffix[..3]);
                 hri = suffix.get(4).map(|s| *s);
+            }
+            (2, 0) => {
+                hri = Some(prefix[0]);
+                mnemonic.push(prefix[1]);
+            }
+            (1, 0) if prefix[0].len() > HRI_MAX_LEN => {
+                mnemonic.extend(prefix);
             }
             (1, 0 | 3..) => {
                 hri = prefix.pop();
@@ -482,13 +497,16 @@ mod test {
                 .unwrap(),
             id
         );
-        // TODO: Fix parsing or standard
-        /*
+        assert_eq!(
+            Id::from_str("SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
+                .unwrap(),
+            id
+        );
         assert_eq!(
             Id::from_str("id SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
                 .unwrap(),
             id
-        );*/
+        );
         assert_eq!(
             Id::from_str("id_sabine_harmony_olivia_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
                 .unwrap(),
