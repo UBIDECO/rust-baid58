@@ -176,6 +176,12 @@ pub enum Baid58ParseError {
         expected: usize,
         found: usize,
     },
+    InvalidMnemonic(String),
+    InvalidChecksumLen(usize),
+    ChecksumMismatch {
+        expected: u32,
+        present: u32,
+    },
     ValueTooShort(usize),
     NonValueTooLong(usize),
     ValueAbsent(String),
@@ -230,7 +236,16 @@ impl Display for Baid58ParseError {
             Baid58ParseError::InvalidBase58Length => {
                 f.write_str("invalid length of the Base58 encoded value")
             }
-            Baid58ParseError::Unparsable(s) => write!(f, "non-parsable Baid58 string '{s}"),
+            Baid58ParseError::Unparsable(s) => write!(f, "non-parsable Baid58 string '{s}'"),
+            Baid58ParseError::InvalidMnemonic(m) => {
+                write!(f, "invalid Baid58 mnemonic string '{m}'")
+            }
+            Baid58ParseError::ChecksumMismatch { expected, present } => {
+                write!(f, "invalid Baid58 checksum: expected {expected:#x}, found {present:#x}")
+            }
+            Baid58ParseError::InvalidChecksumLen(len) => {
+                write!(f, "invalid Baid58 checksum length: expected 4 bytes while found {len}")
+            }
         }
     }
 }
@@ -366,13 +381,47 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
             });
         }
 
-        // TODO: Check checksum
-
-        Ok(Self::from_baid58(Baid58 {
+        let baid58 = Baid58 {
             hri: Self::HRI,
             payload: payload.ok_or(Baid58ParseError::ValueAbsent(s.to_owned()))?,
-        })
-        .expect("HRI is checked"))
+        };
+
+        let mnemonic = match mnemonic.len() {
+            0 => String::new(),
+            3 => mnemonic.join("-"),
+            1 if mnemonic[0].contains("-") => mnemonic[0].to_string(),
+            1 if mnemonic[0].contains("_") => mnemonic[0].replace('-', "_"),
+            1 => mnemonic[0]
+                .chars()
+                .flat_map(|c| {
+                    if c.is_ascii_uppercase() {
+                        vec!['-', c.to_ascii_lowercase()].into_iter()
+                    } else {
+                        vec![c].into_iter()
+                    }
+                })
+                .collect(),
+            _ => return Err(Baid58ParseError::InvalidMnemonic(mnemonic.join("-"))),
+        };
+
+        if !mnemonic.is_empty() {
+            let mut checksum = Vec::<u8>::with_capacity(4);
+            mnemonic::decode(&mnemonic, &mut checksum)
+                .map_err(|_| Baid58ParseError::InvalidMnemonic(mnemonic))?;
+            if checksum.len() != 4 {
+                return Err(Baid58ParseError::InvalidChecksumLen(checksum.len()));
+            }
+            let checksum = u32::from_le_bytes([checksum[0], checksum[1], checksum[2], checksum[3]]);
+            eprintln!("{checksum}");
+            if baid58.checksum() != checksum {
+                return Err(Baid58ParseError::ChecksumMismatch {
+                    expected: baid58.checksum(),
+                    present: checksum,
+                });
+            }
+        }
+
+        Ok(Self::from_baid58(baid58).expect("HRI is checked"))
     }
 
     fn from_baid58(baid: Baid58<LEN>) -> Result<Self, Baid58HriError> {
