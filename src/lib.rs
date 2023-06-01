@@ -166,7 +166,7 @@ impl<const LEN: usize> Display for Baid58<LEN> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
 pub enum Baid58ParseError {
     InvalidHri {
         expected: &'static str,
