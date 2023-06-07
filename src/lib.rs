@@ -59,8 +59,7 @@ impl<const LEN: usize> Baid58<LEN> {
         let mut hasher = blake3::Hasher::new_keyed(key.as_bytes());
         hasher.update(&self.payload);
         let hash = *hasher.finalize().as_bytes();
-        let checksum = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
-        checksum
+        u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]])
     }
 
     pub fn mnemonic(&self) -> String { self.mnemonic_with_case(MnemonicCase::Kebab) }
@@ -335,7 +334,9 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
                     });
                 }
                 payload = Some([0u8; LEN]);
-                payload.as_mut().map(|p| p.copy_from_slice(&value[..]));
+                if let Some(p) = payload.as_mut() {
+                    p.copy_from_slice(&value[..])
+                }
                 cursor = &mut suffix;
             } else if count == 0 {
                 return Err(Baid58ParseError::ValueTooShort(component.len()));
@@ -349,12 +350,12 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         match (prefix.len(), suffix.len()) {
             (0, 0) => {}
             (3 | 4, 0) => {
-                hri = prefix.get(0).map(|s| *s);
+                hri = prefix.first().copied();
                 mnemonic.extend(&prefix[1..])
             }
             (0, 3 | 4) => {
                 mnemonic.extend(&suffix[..3]);
-                hri = suffix.get(4).map(|s| *s);
+                hri = suffix.get(4).copied();
             }
             (2, 0) => {
                 hri = Some(prefix[0]);
@@ -389,8 +390,8 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         let mnemonic = match mnemonic.len() {
             0 => String::new(),
             3 => mnemonic.join("-"),
-            1 if mnemonic[0].contains("-") => mnemonic[0].to_string(),
-            1 if mnemonic[0].contains("_") => mnemonic[0].replace('-', "_"),
+            1 if mnemonic[0].contains('-') => mnemonic[0].to_string(),
+            1 if mnemonic[0].contains('_') => mnemonic[0].replace('-', "_"),
             1 => mnemonic[0]
                 .chars()
                 .flat_map(|c| {
