@@ -45,10 +45,10 @@ pub struct Baid58<const LEN: usize> {
 impl<const LEN: usize> Baid58<LEN> {
     /// # Panics
     ///
-    /// If HRI static string is longer than
+    /// If HRI static string is longer than [`HRI_MAX_LEN`]
     pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self {
-        debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
-        debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
+        assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
+        assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
         Self { hri, payload }
     }
 
