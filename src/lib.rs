@@ -89,15 +89,16 @@ impl<const LEN: usize> Baid58<LEN> {
 /// # Use of formatting flags:
 ///
 /// - no flags: do not add HRI and mnemonic
-/// - `#` - suffix with kebab-case mnemonic, separated with `#` from the main value;
+/// - `#` - suffix with dashed mnemonic, separated with `#` from the main value;
 /// - `0` - prefix with capitalized mnemonic separated with zero from the main value;
-/// - `-` - prefix with dashed separated mnemonic;
-/// - `+` - prefix with underscore separated mnemonic;
+/// - `-` - prefix with dash-separated mnemonic;
+/// - `+` - prefix with underscore-separated mnemonic;
 /// - `.N` - suffix with HRI representing it as a file extension (N can be any number);
 /// - `<` - prefix with HRI; requires mnemonic prefix flag or defaults it to `0` and separates from
 ///   the mnemonic using fill character and width;
-/// - `^` - prefix with HRI without mnemonic, using fill character as separator or defaulting to
-///   `_^` otherwise, width value implies number of character replications;
+/// - `^` - prefix with HRI without mnemonic (checksum is added to the main value), using fill
+///   character as separator or defaulting to ` ^` otherwise, width value implies number of
+///   character replications;
 /// - `>` - suffix with HRI, using fill character as a separator. If width is given, use multiple
 ///   fill characters up to a width.
 impl<const LEN: usize> Display for Baid58<LEN> {
@@ -107,6 +108,7 @@ impl<const LEN: usize> Display for Baid58<LEN> {
             None,
             Prefix(MnemonicCase),
             Suffix,
+            Mixin,
         }
         #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
         enum Hrp {
@@ -136,6 +138,10 @@ impl<const LEN: usize> Display for Baid58<LEN> {
                 mnemo = Mnemo::Prefix(MnemonicCase::Pascal);
                 Hrp::Prefix(fill)
             }
+            Some(Alignment::Center) if mnemo == Mnemo::None => {
+                mnemo = Mnemo::Mixin;
+                Hrp::Prefix(fill)
+            }
             Some(Alignment::Left) | Some(Alignment::Center) => Hrp::Prefix(fill),
             Some(Alignment::Right) => Hrp::Suffix(fill),
         };
@@ -154,7 +160,13 @@ impl<const LEN: usize> Display for Baid58<LEN> {
             }
         }
 
-        f.write_str(&self.payload.to_base58())?;
+        if mnemo == Mnemo::Mixin {
+            let mut p = self.payload.to_vec();
+            p.extend(self.checksum().to_le_bytes());
+            f.write_str(&p.to_base58())?;
+        } else {
+            f.write_str(&self.payload.to_base58())?;
+        };
 
         if let Mnemo::Suffix = mnemo {
             write!(f, "#{}", &self.clone().mnemonic_with_case(MnemonicCase::Kebab))?;
@@ -325,6 +337,7 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         let mut prefix = vec![];
         let mut suffix = vec![];
         let mut cursor = &mut prefix;
+        let mut checksum: Option<u32> = None;
         for component in filtered.split(|c: char| !c.is_ascii_alphanumeric() || c == '0') {
             if component.len() > LEN {
                 // this is a value
@@ -333,15 +346,23 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
                 }
                 let value = component.from_base58()?;
                 let len = value.len();
-                if len != LEN {
-                    return Err(Baid58ParseError::InvalidLen {
-                        expected: LEN,
-                        found: len,
-                    });
+                match len {
+                    x if x == LEN => {}
+                    x if x == LEN + 4 => {
+                        let mut c = [0u8; 4];
+                        c.copy_from_slice(&value[LEN..]);
+                        checksum = Some(u32::from_le_bytes(c));
+                    }
+                    _ => {
+                        return Err(Baid58ParseError::InvalidLen {
+                            expected: LEN,
+                            found: len,
+                        })
+                    }
                 }
                 payload = Some([0u8; LEN]);
                 if let Some(p) = payload.as_mut() {
-                    p.copy_from_slice(&value[..])
+                    p.copy_from_slice(&value[..LEN])
                 }
                 cursor = &mut suffix;
             } else if count == 0 {
@@ -426,6 +447,14 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
                 });
             }
         }
+        if let Some(checksum) = checksum {
+            if baid58.checksum() != checksum {
+                return Err(Baid58ParseError::ChecksumMismatch {
+                    expected: baid58.checksum(),
+                    present: checksum,
+                });
+            }
+        }
 
         Ok(Self::from_baid58(baid58).expect("HRI is checked"))
     }
@@ -491,7 +520,11 @@ mod test {
     #[test]
     fn display() {
         let id = Id::new("some information");
+
         assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
+
+        assert_eq!(&format!("{id::^}"), "id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
+
         assert_eq!(
             &format!("{id:#}"),
             "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
@@ -519,6 +552,13 @@ mod test {
     fn from_str() {
         let id = Id::new("some information");
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs").unwrap(), id);
+
+        assert_eq!(Id::from_str("2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP").unwrap(), id);
+        assert_eq!(
+            Id::from_str("id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP").unwrap(),
+            id
+        );
+
         assert_eq!(
             Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim").unwrap(),
             id
