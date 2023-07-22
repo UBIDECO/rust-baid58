@@ -553,23 +553,58 @@ mod test {
     #[test]
     #[ignore]
     fn attack() {
+        use std::sync::{Arc, Mutex};
+
         let id = Id::new("some information");
         let mut handles = vec![];
+        let failures = Arc::new(Mutex::new(vec![]));
         for x in 0..24 {
+            let f = failures.clone();
             handles.push(std::thread::spawn(move || {
                 let id = id.to_baid58();
                 for salt in 0..0x4000000 {
                     let av = Id::new(&format!("attack using salt {x} {salt}")).to_baid58();
-                    assert_ne!(
-                        id.checksum(),
-                        av.checksum(),
-                        "successful bruteforce attack on round {salt:#x}"
-                    );
+                    if id.checksum() == av.checksum() {
+                        f.lock()
+                            .unwrap()
+                            .push(format!("successful bruteforce attack on round {salt:#x}"));
+                    }
                 }
             }));
         }
         for handle in handles {
             handle.join().ok();
         }
+        assert!(failures.lock().unwrap().is_empty(), "Attacks succeeded:\n{failures:#?}");
     }
 }
+
+// Two hashes, 16 bits:
+// 0xce6 + 0xee4 + 0x1ad7 + 0x169a + 0x1b15 + 0x1634 + 0x3861 + 0x3d1a + 0x3bf3 + 0x50c3 + 0x7dcd +
+// 0xab0c + 0xb58f + 0xac76 + 0xea00 + 0xcfdd + 0x1174e + 0x11a8a + 0x119f7 + 0x1a08e + 0x1e0e8 +
+// 0x1d4dd + 0x2e9bc + 0x32316
+// Avg: 0xDA2E
+
+// One hash, 16 bits:
+// 0x399 + 0x907 + 0x10d4 + 0x1924 + 0x41ea + 0x670f + 0x7651 + 0x704c + 0x5e14 + 0x69f6 + 0x6bf6 +
+// 0xbdb4 + 0xa18d + 0xa2cb + 0xe189 + 0x12c3b + 0x1840a + 0x1aaf3 + 0x1b9af + 0x191f4 + 0x1bec5 +
+// 0x2c04b + 0x401d7 + 0x5ab15
+// Avg: 0x1275B
+
+// Two hashes, 24 bits:
+// 0x797b3 + 0x9dff5 + 0x1b32e3 + 0x4839f8 + 0x5a60e1 + 0x8c114d + 0x99d3c2 + 0x9c253f + 0xaeb79f +
+// 0xb1ad32 + 0xb4b454 + 0xc04c86 + 0xcb45ae + 0xd02170 + 0xda76ca + 0xe2caca + 0x1051a90 +
+// 0x1067210 + 0x11b4e06 + 0x123e239 + 0x12dfa39 + 0x14bfc08 + 0x15e84d4 + 0x175c9a0 + 0x189f99b +
+// 0x1942417 + 0x1b56b73 + 0x1b3ae84 + 0x1be9dbd + 0x1e78d54 + 0x1fc9fd0 + 0x201a7d2 + 0x202f210 +
+// 0x20a0c84 + 0x21beb72 + 0x223e1c6 + 0x2377a9d + 0x23d0d29 + 0x242387d + 0x24733c9 + 0x253bf88 +
+// 0x26922d0 + 0x269a164 + 0x2685278 + 0x26724cc + 0x27d41a4 + 0x27aa27a + 0x28349a9 + 0x288692e +
+// 0x29b49c8 + 0x2a8ae22 + 0x2a753ac + 0x2aebd1e + 0x2a74338 + 0x2ba5730 + 0x2c73e8b + 0x2dbd2f3 +
+// 0x2d27825 + 0x2df7c4e + 0x313bb3c + 0x308b47d + 0x312ea5a + 0x3199629 + 0x31baa54 + 0x325d602 +
+// 0x3372ed4 + 0x339431f + 0x33e2bf9 + 0x3851677 + 0x38b882b + 0x3d7e406
+// 0x8A3A95FF / 71 = 0x1'F2'67'12
+
+// One hash, 24 bits:
+// 0x10ebbf + 0x24c0d7 + 0x3482eb + 0x42a67d + 0x5267c9 + 0x5e3e35 + 0x61dfc0 + 0x7e00d9 + 0x73f791
+// + 0x7fff0f + 0x98b23e + 0xa6b60c + 0xb8e6ee + 0xaea505 + 0xe87274 + 0x14ba442 + 0x1830eb5 +
+// 0x1ad4fc6 + 0x1c60c47 + 0x2455ecc + 0x2d1ee9c + 0x2d69ebc + 0x35fb073 + 0x394e680
+// 0x1BE54C01 / 24 = 0x1'29'8D'D5
