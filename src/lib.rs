@@ -26,6 +26,7 @@ use std::fmt;
 use std::fmt::{Alignment, Display, Formatter};
 
 use base58::{FromBase58, FromBase58Error, ToBase58};
+use sha2::Digest;
 
 pub const HRI_MAX_LEN: usize = 8;
 
@@ -58,8 +59,13 @@ impl<const LEN: usize> Baid58<LEN> {
         let key = blake3::Hasher::new().update(self.hri.as_bytes()).finalize();
         let mut hasher = blake3::Hasher::new_keyed(key.as_bytes());
         hasher.update(&self.payload);
-        let hash = *hasher.finalize().as_bytes();
-        u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]])
+        let blake = *hasher.finalize().as_bytes();
+
+        let key = sha2::Sha256::digest(self.hri.as_bytes());
+        let mut sha = sha2::Sha256::new_with_prefix(key);
+        sha.update(&self.payload);
+        let sha = sha.finalize();
+        u32::from_le_bytes([blake[0], blake[1], sha[0], sha[1]])
     }
 
     pub fn mnemonic(&self) -> String { self.mnemonic_with_case(MnemonicCase::Kebab) }
@@ -488,24 +494,24 @@ mod test {
         assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
         assert_eq!(
             &format!("{id:#}"),
-            "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia"
+            "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
         );
         assert_eq!(&format!("{id:.1}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id");
         assert_eq!(
             &format!("{id::^#}"),
-            "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia"
+            "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
         );
         assert_eq!(
             &format!("{id:-.1}"),
-            "sabine-harmony-olivia-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id"
+            "escape-cadet-swim-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id"
         );
         assert_eq!(
             &format!("{id:<0}"),
-            "id SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
+            "id EscapeCadetSwim0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
         );
         assert_eq!(
             &format!("{id:_<+}"),
-            "id_sabine_harmony_olivia_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
+            "id_escape_cadet_swim_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs"
         );
     }
 
@@ -514,35 +520,56 @@ mod test {
         let id = Id::new("some information");
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs").unwrap(), id);
         assert_eq!(
-            Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia")
-                .unwrap(),
+            Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim").unwrap(),
             id
         );
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id").unwrap(), id);
         assert_eq!(
-            Id::from_str("id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#sabine-harmony-olivia")
+            Id::from_str("id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim")
                 .unwrap(),
             id
         );
         assert_eq!(
-            Id::from_str("sabine-harmony-olivia-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id")
+            Id::from_str("escape-cadet-swim-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id")
                 .unwrap(),
             id
         );
         assert_eq!(
-            Id::from_str("SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
+            Id::from_str("EscapeCadetSwim0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs").unwrap(),
+            id
+        );
+        assert_eq!(
+            Id::from_str("id EscapeCadetSwim0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
                 .unwrap(),
             id
         );
         assert_eq!(
-            Id::from_str("id SabineHarmonyOlivia0FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
+            Id::from_str("id_escape_cadet_swim_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
                 .unwrap(),
             id
         );
-        assert_eq!(
-            Id::from_str("id_sabine_harmony_olivia_FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs")
-                .unwrap(),
-            id
-        );
+    }
+
+    #[test]
+    #[ignore]
+    fn attack() {
+        let id = Id::new("some information");
+        let mut handles = vec![];
+        for x in 0..24 {
+            handles.push(std::thread::spawn(move || {
+                let id = id.to_baid58();
+                for salt in 0..0x4000000 {
+                    let av = Id::new(&format!("attack using salt {x} {salt}")).to_baid58();
+                    assert_ne!(
+                        id.checksum(),
+                        av.checksum(),
+                        "successful bruteforce attack on round {salt:#x}"
+                    );
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().ok();
+        }
     }
 }
