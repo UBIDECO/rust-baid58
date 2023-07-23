@@ -8,12 +8,12 @@ readme = "README.md"
 authors = ["Dr. Maxim Orlovsky <orlovsky@ubideco.org>"]
 homepage = "https://github.com/UBIDECO/rust-baid58"
 repository = "https://github.com/UBIDECO/rust-baid58"
-rust-version = "1.60.0"
+rust-version = "1.66.0" # Due const_time_eq crate which can't be removed or downgraded
 edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
 base58 = "0.2.0"
-blake3 = "1.3.3"
+blake3 = "1.4.1"
 mnemonic = "1.0.1"
 sha2 = "0.10.7"
