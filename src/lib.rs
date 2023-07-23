@@ -88,6 +88,19 @@ impl<const LEN: usize> Baid58<LEN> {
 
 /// # Use of formatting flags:
 ///
+/// | Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
+/// |------|--------|-------------------|------------------------|------------|------------------------|
+/// | `#`  | -      | -                 | suffix (dashed)        | `#`        | `ID#solo-lemur-wishes` |
+/// | `0`  | -      | -                 | prefix (capitalized)   | `0`        | `SoloLemurWishes0ID`   |
+/// | `-`  | -      | -                 | prefix (dashes)        | `-`        | `solo-lemur-wishes-ID` |
+/// | `+`  | -      | -                 | prefix (underscored)   | `_`        | `solo_lemur_wishes_ID` |
+/// | `.N` | suffix | -                 | defined by other flags | `.`        | `ID.hri`               |
+/// | `A<` | prefix | -                 | defined by other flags | `A`        | `hri`A`ID`             |
+/// | `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
+/// | `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
+///
+/// __<sup>*</sup> added if no mnemonic flags are given__
+///
 /// - no flags: do not add HRI and mnemonic
 /// - `#` - suffix with dashed mnemonic, separated with `#` from the main value;
 /// - `0` - prefix with capitalized mnemonic separated with zero from the main value;
@@ -96,11 +109,12 @@ impl<const LEN: usize> Baid58<LEN> {
 /// - `.N` - suffix with HRI representing it as a file extension (N can be any number);
 /// - `<` - prefix with HRI; requires mnemonic prefix flag or defaults it to `0` and separates from
 ///   the mnemonic using fill character and width;
-/// - `^` - prefix with HRI without mnemonic (checksum is added to the main value), using fill
-///   character as separator or defaulting to ` ^` otherwise, width value implies number of
-///   character replications;
-/// - `>` - suffix with HRI, using fill character as a separator. If width is given, use multiple
-///   fill characters up to a width.
+/// - `^` - prefix with HRI using fill character as separator (defaults to space), width value
+///   implies number of character replications; if mnemonic flags are present the mnemonic is added,
+///   or otherwise the id is extended with a checksum;
+/// - `>` - suffix with HRI using fill character as separator (defaults to space), width value
+///   implies number of character replications; if mnemonic flags are present the mnemonic is added,
+///   or otherwise the id is extended with a checksum;
 impl<const LEN: usize> Display for Baid58<LEN> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
