@@ -113,16 +113,19 @@ Both HRI part and mnemonic checksum may be omitted - in this case we have just
 an unmodified `Base58` string. Alternatively, they can be formatted with this 
 crate using rich functionality of rust display formatting language in the 
 following ways:
-- `#` - add kebab-case mnemonic as a suffix separated with `#`;
-- `0` - prefix with capitalized mnemonic separated with zero from the main code;
-- `-` - prefix with dash-separated mnemonic;
-- `+` - prefix with underscore-separated mnemonic;
-- `.` - suffix with HRI in form of a file extension;
-- `<` - prefix with HRI separating from the value using fill character(s). 
-  Requires mnemonic prefix flag or defaults it to `0`.
-- `^` - prefix with HRP without mnemonic, using fill character as separator - or
-  defaulting to `_^` otherwise;
-- `>` - suffix with HRI, using fill character as a separator
+
+| Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
+|------|--------|-------------------|------------------------|------------|------------------------|
+| `#`  | -      | -                 | suffix (dashed)        | `#`        | `ID#solo-lemur-wishes` |
+| `0`  | -      | -                 | prefix (capitalized)   | `0`        | `SoloLemurWishes0ID`   |
+| `-`  | -      | -                 | prefix (dashes)        | `-`        | `solo-lemur-wishes-ID` |
+| `+`  | -      | -                 | prefix (underscored)   | `_`        | `solo_lemur_wishes_ID` |
+| `.N` | suffix | -                 | defined by other flags | `.`        | `ID.hri`               |
+| `A<` | prefix | -                 | defined by other flags | `A`        | `hri`A`ID`             |
+| `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
+| `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
+
+__<sup>*</sup> added if no mnemonic flags are given__
 
 If width is given, it is used to place multiple fill characters between the
 value and HRI.
@@ -136,6 +139,8 @@ Example formatting strings from the above:
   `stl_tommy_fuel_pagoda_7EnUZgFtu28sWqqH3womkTopXCkgAGsCLvLnYvNcPLRt`
 - **URI or a part of URL**: `{::^#}` ->
   `stl:7EnUZgFtu28sWqqH3womkTopXCkgAGsCLvLnYvNcPLRt#tommy_fuel_pagoda`
+- **Using checksum embedded into the ID**: `{::^}` ->
+  `stl:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP`
 
 
 [b2t]: https://en.wikipedia.org/wiki/Binary-to-text_encoding
