@@ -143,7 +143,10 @@ impl<const LEN: usize> Display for Baid58<LEN> {
                 Hrp::Prefix(fill)
             }
             Some(Alignment::Left) | Some(Alignment::Center) => Hrp::Prefix(fill),
-            Some(Alignment::Right) => Hrp::Suffix(fill),
+            Some(Alignment::Right) => {
+                mnemo = Mnemo::Mixin;
+                Hrp::Suffix(fill)
+            }
         };
 
         if let Hrp::Prefix(ref prefix) = hrp {
