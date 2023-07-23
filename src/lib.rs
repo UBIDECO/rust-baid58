@@ -88,33 +88,34 @@ impl<const LEN: usize> Baid58<LEN> {
 
 /// # Use of formatting flags:
 ///
+/// ## HRI and checksum
+///
+/// The presence of human-readable identifier and checksum is controlled by precision flag and by
+/// alignment flags. All the options can be combined with the mnemonic flags from the next section;
+/// if a specific mnemonic flag is present than the checksum is not provided.
+///
 /// | Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
 /// |------|--------|-------------------|------------------------|------------|------------------------|
+/// | none | absent | absent            | defined by other flags | n/a        |                        |
+/// | `.N` | suffix | absent            | defined by other flags | `.`        | `ID.hri`               |
+/// | `A<` | prefix | absent            | defined by other flags | `A`        | `hri`A`ID`             |
+/// | `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
+/// | `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
+///
+/// _<sup>*</sup> added if no mnemonic flags are given_
+///
+/// ## Mnemonic representation of the checksum
+///
+/// The presence and position of mnemonic is defined by alternative and sign flags:
+///
+/// | Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
+/// |------|--------|-------------------|------------------------|------------|------------------------|
+/// | none | -      | defined by HRI flags | absent              | n/a        |                        |
 /// | `#`  | -      | -                 | suffix (dashed)        | `#`        | `ID#solo-lemur-wishes` |
 /// | `0`  | -      | -                 | prefix (capitalized)   | `0`        | `SoloLemurWishes0ID`   |
 /// | `-`  | -      | -                 | prefix (dashes)        | `-`        | `solo-lemur-wishes-ID` |
 /// | `+`  | -      | -                 | prefix (underscored)   | `_`        | `solo_lemur_wishes_ID` |
-/// | `.N` | suffix | -                 | defined by other flags | `.`        | `ID.hri`               |
-/// | `A<` | prefix | -                 | defined by other flags | `A`        | `hri`A`ID`             |
-/// | `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
-/// | `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
-///
-/// __<sup>*</sup> added if no mnemonic flags are given__
-///
-/// - no flags: do not add HRI and mnemonic
-/// - `#` - suffix with dashed mnemonic, separated with `#` from the main value;
-/// - `0` - prefix with capitalized mnemonic separated with zero from the main value;
-/// - `-` - prefix with dash-separated mnemonic;
-/// - `+` - prefix with underscore-separated mnemonic;
-/// - `.N` - suffix with HRI representing it as a file extension (N can be any number);
-/// - `<` - prefix with HRI; requires mnemonic prefix flag or defaults it to `0` and separates from
-///   the mnemonic using fill character and width;
-/// - `^` - prefix with HRI using fill character as separator (defaults to space), width value
-///   implies number of character replications; if mnemonic flags are present the mnemonic is added,
-///   or otherwise the id is extended with a checksum;
-/// - `>` - suffix with HRI using fill character as separator (defaults to space), width value
-///   implies number of character replications; if mnemonic flags are present the mnemonic is added,
-///   or otherwise the id is extended with a checksum;
+
 impl<const LEN: usize> Display for Baid58<LEN> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
@@ -148,10 +149,6 @@ impl<const LEN: usize> Display for Baid58<LEN> {
         let hrp = match f.align() {
             None if f.precision().is_some() => Hrp::Ext,
             None => Hrp::None,
-            Some(Alignment::Left) if mnemo == Mnemo::None => {
-                mnemo = Mnemo::Prefix(MnemonicCase::Pascal);
-                Hrp::Prefix(fill)
-            }
             Some(Alignment::Center) if mnemo == Mnemo::None => {
                 mnemo = Mnemo::Mixin;
                 Hrp::Prefix(fill)
@@ -540,6 +537,7 @@ mod test {
 
         assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
 
+        assert_eq!(&format!("{id::<}"), "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
         assert_eq!(&format!("{id::^}"), "id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
 
         assert_eq!(
