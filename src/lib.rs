@@ -63,15 +63,6 @@ impl<const LEN: usize> Baid58<LEN> {
     fn new(hri: &'static str, payload: [u8; LEN], chunking: Option<Chunking>) -> Self {
         debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
         debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
-        #[cfg(debug_assertions)]
-        if let Some(chunking) = chunking {
-            debug_assert!(!chunking.positions.is_empty());
-            debug_assert_eq!(
-                chunking.positions.iter().sum::<u8>() as usize,
-                LEN * 138 / 100,
-                "invalid Baid58 separator positions"
-            );
-        }
         Self {
             hri,
             chunking,
@@ -141,10 +132,14 @@ impl<const LEN: usize> Baid58<LEN> {
 /// | Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
 /// |------|--------|-------------------|------------------------|------------|------------------------|
 /// | none | absent | absent            | defined by other flags | n/a        |                        |
-/// | `.N` | suffix | absent            | defined by other flags | `.`        | `ID.hri`               |
-/// | `A<` | prefix | absent            | defined by other flags | `A`        | `hri`A`ID`             |
-/// | `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
-/// | `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
+/// | `.0` | suffix | absent            | defined by other flags | `.`        | `ID.hri`               |
+/// | `.1` | absent | added             | absent                 | n/a        | `IDchecksum`           |
+/// | `.2` | absent | added             | absent                 | n/a        | chunk(`ID`)            |
+/// | `.3` | absent | added             | absent                 | n/a        | chunk(`IDchecksum`)    |
+/// | `.`N | reserved | | | | |
+/// | A`<` | prefix | absent            | defined by other flags | `A`        | `hri`A`ID`             |
+/// | A`^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
+/// | A`>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
 ///
 /// _<sup>*</sup> added if no mnemonic flags are given_
 ///
@@ -191,7 +186,11 @@ impl<const LEN: usize> Display for Baid58<LEN> {
 
         let fill = (0..=f.width().unwrap_or_default()).map(|_| f.fill()).collect();
         let hrp = match f.align() {
-            None if f.precision().is_some() => Hrp::Ext,
+            None if f.precision() == Some(0) => Hrp::Ext,
+            None if f.precision() == Some(1) || f.precision() == Some(3) => {
+                mnemo = Mnemo::Mixin;
+                Hrp::None
+            }
             None => Hrp::None,
             Some(Alignment::Center) if mnemo == Mnemo::None => {
                 mnemo = Mnemo::Mixin;
@@ -225,18 +224,28 @@ impl<const LEN: usize> Display for Baid58<LEN> {
         } else {
             self.payload.to_base58()
         };
-        if let Some(chunking) = self.chunking {
-            let mut iter = s.chars();
-            for len in chunking.positions {
-                for ch in iter.by_ref().take(*len as usize) {
-                    f.write_char(ch)?;
-                }
-                if !iter.as_str().is_empty() {
-                    f.write_char(chunking.separator)?;
+        match (self.chunking, f.precision()) {
+            (Some(chunking), Some(2 | 3)) => {
+                debug_assert!(!chunking.positions.is_empty());
+                debug_assert_eq!(
+                    chunking.positions.iter().sum::<u8>() as usize,
+                    s.len(),
+                    "invalid Baid58 separator positions"
+                );
+
+                let mut iter = s.chars();
+                for len in chunking.positions {
+                    for ch in iter.by_ref().take(*len as usize) {
+                        f.write_char(ch)?;
+                    }
+                    if !iter.as_str().is_empty() {
+                        f.write_char(chunking.separator)?;
+                    }
                 }
             }
-        } else {
-            f.write_str(&s)?;
+            _ => {
+                f.write_str(&s)?;
+            }
         }
 
         if let Mnemo::Suffix = mnemo {
@@ -558,7 +567,6 @@ pub trait ToBaid58<const LEN: usize> {
 
 #[cfg(test)]
 mod test {
-    use std::fmt::LowerExp;
     use std::str::FromStr;
 
     use super::*;
@@ -584,13 +592,16 @@ mod test {
     }
     impl FromBaid58<32> for Id {}
 
-    impl LowerExp for Id {
-        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { Display::fmt(&self.to_baid58(), f) }
-    }
     impl Display for Id {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             let mut baid = self.to_baid58();
-            baid.chunking = None;
+            match f.precision() {
+                Some(2) => {}
+                Some(3) => {
+                    baid.chunking.as_mut().map(|c| c.positions = &[7, 9, 9, 9, 9, 7]);
+                }
+                _ => baid.chunking = None,
+            }
             Display::fmt(&baid, f)
         }
     }
@@ -614,7 +625,7 @@ mod test {
             const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 6], '-'));
             fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
         }
-        Id::default().to_baid58();
+        format!("{:.2}", Id::default().to_baid58());
     }
 
     #[test]
@@ -622,7 +633,11 @@ mod test {
         let id = Id::new("some information");
 
         assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
-        assert_eq!(&format!("{id:e}"), "FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs");
+
+        assert_eq!(&format!("{id:.0}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id");
+        assert_eq!(&format!("{id:.1}"), "2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
+        assert_eq!(&format!("{id:.2}"), "FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs");
+        assert_eq!(&format!("{id:.3}"), "2dzcCoX-9c65gi1Go-J1LFzb5Fc-Q9pAc8o3P-j8TpcH2mk-AdMLCpP");
 
         assert_eq!(&format!("{id::<}"), "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
         assert_eq!(&format!("{id::^}"), "id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
@@ -631,13 +646,12 @@ mod test {
             &format!("{id:#}"),
             "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
         );
-        assert_eq!(&format!("{id:.1}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id");
         assert_eq!(
             &format!("{id::^#}"),
             "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
         );
         assert_eq!(
-            &format!("{id:-.1}"),
+            &format!("{id:-.0}"),
             "escape-cadet-swim-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id"
         );
         assert_eq!(
