@@ -30,6 +30,13 @@ use sha2::Digest;
 
 pub const HRI_MAX_LEN: usize = 8;
 
+pub const CHUNK_POSITIONS_32: [u8; 5] = [6, 8, 8, 8, 8];
+pub const CHUNK_POSITIONS_32CHECKSUM: [u8; 5] = [7, 9, 9, 9, 9];
+
+pub const CHUNKING_32: Option<Chunking> = Some(Chunking::new(&CHUNK_POSITIONS_32, '-'));
+pub const CHUNKING_32CHECKSUM: Option<Chunking> =
+    Some(Chunking::new(&CHUNK_POSITIONS_32CHECKSUM, '-'));
+
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub enum MnemonicCase {
     Pascal,
@@ -288,6 +295,7 @@ pub enum Baid58ParseError {
     InvalidBase58Character(char, usize),
     /// The input had invalid length.
     InvalidBase58Length,
+    InvalidChunking,
     Unparsable(String),
 }
 
@@ -341,6 +349,9 @@ impl Display for Baid58ParseError {
             }
             Baid58ParseError::ChecksumMismatch { expected, present } => {
                 write!(f, "invalid Baid58 checksum: expected {expected:#x}, found {present:#x}")
+            }
+            Baid58ParseError::InvalidChunking => {
+                write!(f, "invalid Baid58 chunking")
             }
             Baid58ParseError::InvalidChecksumLen(len) => {
                 write!(f, "invalid Baid58 checksum length: expected 4 bytes while found {len}")
@@ -542,6 +553,44 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         Ok(Self::from_baid58(baid58).expect("HRI is checked"))
     }
 
+    fn check_baid58_chunking(mut s: &str, prefix_sep: char, suffix_sep: char) -> bool {
+        if let Some(mut pos) = s.chars().position(|c| c == prefix_sep) {
+            pos = pos.saturating_add(1);
+            if pos >= s.len() {
+                return false;
+            }
+            s = &s[pos..]
+        };
+
+        let Some(chunking) = Self::CHUNKING else {
+            return false;
+        };
+
+        let count =
+            s.chars().take_while(|c| *c != suffix_sep).filter(|c| *c == chunking.separator).count();
+        if count != chunking.positions.len() {
+            return false;
+        }
+        let mut offset = s
+            .chars()
+            .take_while(|c| *c != suffix_sep)
+            .position(|c| c == prefix_sep)
+            .map(|p| p + 1)
+            .unwrap_or_default();
+        for pos in chunking.positions {
+            offset += *pos as usize;
+            if s.as_bytes()[offset] != chunking.separator as u8 {
+                return false;
+            }
+            offset = offset.saturating_add(1);
+        }
+        true
+    }
+
+    /// # Safety
+    ///
+    /// Panics if called on types with `ToBaid58::CHUNKING` set to `None` (which is default
+    /// setting).
     fn from_baid58_chunked_str(
         s: &str,
         prefix_sep: char,
@@ -549,6 +598,11 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
     ) -> Result<Self, Baid58ParseError> {
         let chunking = Self::CHUNKING
             .expect("FromBaid58::from_baid58_chunked_str must be used only on chunked types");
+
+        if !Self::check_baid58_chunking(s, prefix_sep, suffix_sep) {
+            return Err(Baid58ParseError::InvalidChunking);
+        }
+
         let prefix = format!("{}{prefix_sep}", Self::HRI);
         let s = s.trim_start_matches(&prefix);
         let s = prefix.chars().chain(
@@ -557,7 +611,24 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
                 .filter(|c| *c != chunking.separator)
                 .chain(s.chars().skip_while(|c| *c != suffix_sep)),
         );
+
         Self::from_baid58_str(&s.collect::<String>())
+    }
+
+    /// # Safety
+    ///
+    /// Panics if called on types with `ToBaid58::CHUNKING` set to `None` (which is default
+    /// setting).
+    fn from_baid58_maybe_chunked_str(
+        s: &str,
+        prefix_sep: char,
+        suffix_sep: char,
+    ) -> Result<Self, Baid58ParseError> {
+        if Self::check_baid58_chunking(s, prefix_sep, suffix_sep) {
+            Self::from_baid58_chunked_str(s, prefix_sep, suffix_sep)
+        } else {
+            Self::from_baid58_str(s)
+        }
     }
 
     fn from_baid58(baid: Baid58<LEN>) -> Result<Self, Baid58HriError> {
@@ -607,7 +678,7 @@ mod test {
 
     impl ToBaid58<32> for Id {
         const HRI: &'static str = "id";
-        const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 8], '-'));
+        const CHUNKING: Option<Chunking> = CHUNKING_32;
         fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
     }
     impl FromBaid58<32> for Id {}
@@ -618,7 +689,7 @@ mod test {
             match f.precision() {
                 Some(2) => {}
                 Some(3) => {
-                    baid.chunking.as_mut().map(|c| c.positions = &[7, 9, 9, 9, 9]);
+                    baid.chunking.as_mut().map(|c| c.positions = &CHUNK_POSITIONS_32CHECKSUM);
                 }
                 _ => baid.chunking = None,
             }
@@ -630,8 +701,7 @@ mod test {
         type Err = Baid58ParseError;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            Id::from_baid58_str(s)
-                .or_else(|err| Id::from_baid58_chunked_str(&s, ':', '#').map_err(|_| err))
+            Id::from_baid58_maybe_chunked_str(&s, ':', '#')
         }
     }
 
