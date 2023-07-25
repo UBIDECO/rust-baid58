@@ -540,6 +540,24 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         Ok(Self::from_baid58(baid58).expect("HRI is checked"))
     }
 
+    fn from_baid58_chunked_str(
+        s: &str,
+        prefix_sep: char,
+        suffix_sep: char,
+    ) -> Result<Self, Baid58ParseError> {
+        let chunking = Self::CHUNKING
+            .expect("FromBaid58::from_baid58_chunked_str must be used only on chunked types");
+        let prefix = format!("{}{prefix_sep}", Self::HRI);
+        let s = s.trim_start_matches(&prefix);
+        let s = prefix.chars().chain(
+            s.chars()
+                .take_while(|c| *c != suffix_sep)
+                .filter(|c| *c != chunking.separator)
+                .chain(s.chars().skip_while(|c| *c != suffix_sep)),
+        );
+        Self::from_baid58_str(&s.collect::<String>())
+    }
+
     fn from_baid58(baid: Baid58<LEN>) -> Result<Self, Baid58HriError> {
         if baid.hri != Self::HRI {
             Err(Baid58HriError {
@@ -609,7 +627,10 @@ mod test {
     impl FromStr for Id {
         type Err = Baid58ParseError;
 
-        fn from_str(s: &str) -> Result<Self, Self::Err> { Id::from_baid58_str(s) }
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Id::from_baid58_str(s)
+                .or_else(|err| Id::from_baid58_chunked_str(&s, ':', '#').map_err(|_| err))
+        }
     }
 
     #[test]
@@ -669,6 +690,11 @@ mod test {
         let id = Id::new("some information");
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs").unwrap(), id);
 
+        assert_eq!(
+            Id::from_str("id:FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs").unwrap(),
+            id
+        );
+
         assert_eq!(Id::from_str("2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP").unwrap(), id);
         assert_eq!(
             Id::from_str("id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP").unwrap(),
@@ -682,6 +708,11 @@ mod test {
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id").unwrap(), id);
         assert_eq!(
             Id::from_str("id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim")
+                .unwrap(),
+            id
+        );
+        assert_eq!(
+            Id::from_str("id:FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs#escape-cadet-swim")
                 .unwrap(),
             id
         );
