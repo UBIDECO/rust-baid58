@@ -44,7 +44,7 @@ pub struct Chunking {
 }
 
 impl Chunking {
-    pub fn new(positions: &'static [u8], separator: char) -> Self {
+    pub const fn new(positions: &'static [u8], separator: char) -> Self {
         Chunking {
             positions,
             separator,
@@ -63,6 +63,15 @@ impl<const LEN: usize> Baid58<LEN> {
     fn new(hri: &'static str, payload: [u8; LEN], chunking: Option<Chunking>) -> Self {
         debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
         debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
+        #[cfg(debug_assertions)]
+        if let Some(chunking) = chunking {
+            debug_assert!(!chunking.positions.is_empty());
+            debug_assert_eq!(
+                chunking.positions.iter().sum::<u8>() as usize,
+                LEN * 138 / 100,
+                "invalid Baid58 separator positions"
+            );
+        }
         Self {
             hri,
             chunking,
@@ -81,11 +90,6 @@ impl<const LEN: usize> Baid58<LEN> {
         chunk_pos: &'static [u8],
         chunk_sep: char,
     ) -> Self {
-        debug_assert!(!chunk_pos.is_empty());
-        debug_assert!(
-            chunk_pos.iter().all(|pos| (*pos as usize) < LEN * 138 / 100 + 1),
-            "Baid58 separator positions must fit within string length"
-        );
         let chunking = Chunking {
             positions: chunk_pos,
             separator: chunk_sep,
@@ -554,6 +558,7 @@ pub trait ToBaid58<const LEN: usize> {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::LowerExp;
     use std::str::FromStr;
 
     use super::*;
@@ -574,12 +579,20 @@ mod test {
 
     impl ToBaid58<32> for Id {
         const HRI: &'static str = "id";
+        const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 8, 6], '-'));
         fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
     }
     impl FromBaid58<32> for Id {}
 
-    impl Display for Id {
+    impl LowerExp for Id {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { Display::fmt(&self.to_baid58(), f) }
+    }
+    impl Display for Id {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let mut baid = self.to_baid58();
+            baid.chunking = None;
+            Display::fmt(&baid, f)
+        }
     }
 
     impl FromStr for Id {
@@ -589,10 +602,27 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn invalid_chunking() {
+        #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Default)]
+        struct Id([u8; 32]);
+        impl From<[u8; 32]> for Id {
+            fn from(value: [u8; 32]) -> Self { Id(value) }
+        }
+        impl ToBaid58<32> for Id {
+            const HRI: &'static str = "id";
+            const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 6], '-'));
+            fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
+        }
+        Id::default().to_baid58();
+    }
+
+    #[test]
     fn display() {
         let id = Id::new("some information");
 
         assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
+        assert_eq!(&format!("{id:e}"), "FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs");
 
         assert_eq!(&format!("{id::<}"), "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
         assert_eq!(&format!("{id::^}"), "id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
