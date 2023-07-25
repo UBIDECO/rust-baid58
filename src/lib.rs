@@ -39,8 +39,8 @@ pub enum MnemonicCase {
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Chunking {
-    pub positions: &'static [u8],
-    pub separator: char,
+    positions: &'static [u8],
+    separator: char,
 }
 
 impl Chunking {
@@ -63,6 +63,12 @@ impl<const LEN: usize> Baid58<LEN> {
     fn new(hri: &'static str, payload: [u8; LEN], chunking: Option<Chunking>) -> Self {
         debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
         debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
+        #[cfg(debug_assertions)]
+        if let Some(chunking) = chunking {
+            debug_assert!(!chunking.positions.is_empty());
+            let sum = chunking.positions.iter().sum::<u8>() as usize;
+            debug_assert!(sum <= LEN * 138 / 100 + 1, "invalid Baid58 separator positions");
+        }
         Self {
             hri,
             chunking,
@@ -226,13 +232,6 @@ impl<const LEN: usize> Display for Baid58<LEN> {
         };
         match (self.chunking, f.precision()) {
             (Some(chunking), Some(2 | 3)) => {
-                debug_assert!(!chunking.positions.is_empty());
-                debug_assert_eq!(
-                    chunking.positions.iter().sum::<u8>() as usize,
-                    s.len(),
-                    "invalid Baid58 separator positions"
-                );
-
                 let mut iter = s.chars();
                 for len in chunking.positions {
                     for ch in iter.by_ref().take(*len as usize) {
@@ -241,6 +240,9 @@ impl<const LEN: usize> Display for Baid58<LEN> {
                     if !iter.as_str().is_empty() {
                         f.write_char(chunking.separator)?;
                     }
+                }
+                for ch in iter {
+                    f.write_char(ch)?;
                 }
             }
             _ => {
@@ -605,7 +607,7 @@ mod test {
 
     impl ToBaid58<32> for Id {
         const HRI: &'static str = "id";
-        const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 8, 6], '-'));
+        const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 8], '-'));
         fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
     }
     impl FromBaid58<32> for Id {}
@@ -616,7 +618,7 @@ mod test {
             match f.precision() {
                 Some(2) => {}
                 Some(3) => {
-                    baid.chunking.as_mut().map(|c| c.positions = &[7, 9, 9, 9, 9, 7]);
+                    baid.chunking.as_mut().map(|c| c.positions = &[7, 9, 9, 9, 9]);
                 }
                 _ => baid.chunking = None,
             }
@@ -643,7 +645,7 @@ mod test {
         }
         impl ToBaid58<32> for Id {
             const HRI: &'static str = "id";
-            const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 6], '-'));
+            const CHUNKING: Option<Chunking> = Some(Chunking::new(&[7, 9, 9, 9, 9, 9], '-'));
             fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
         }
         format!("{:.2}", Id::default().to_baid58());
