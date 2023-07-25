@@ -123,7 +123,7 @@ impl<const LEN: usize> Baid58<LEN> {
 
 /// # Use of formatting flags:
 ///
-/// ## HRI and checksum
+/// ## HRI, checksum and chunking
 ///
 /// The presence of human-readable identifier and checksum is controlled by precision flag and by
 /// alignment flags. All the options can be combined with the mnemonic flags from the next section;

@@ -114,20 +114,24 @@ an unmodified `Base58` string. Alternatively, they can be formatted with this
 crate using rich functionality of rust display formatting language in the 
 following ways:
 
-## HRI and checksum
+## HRI, checksum and chunking
 
 The presence of human-readable identifier and checksum is controlled by 
 precision flag and by alignment flags. All the options can be combined with the
 mnemonic flags from the next section; if a specific mnemonic flag is present 
 than the checksum is not provided.
 
-| Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
-|------|--------|-------------------|------------------------|------------|------------------------|
-| none | absent | absent            | defined by other flags | n/a        |                        |
-| `.N` | suffix | absent            | defined by other flags | `.`        | `ID.hri`               |
-| `A<` | prefix | absent            | defined by other flags | `A`        | `hri`A`ID`             |
-| `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
-| `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
+| Flag | HRI      | Checksum          | Mnemonic               | Separators | Example                |
+|------|----------|-------------------|------------------------|------------|------------------------|
+| none | absent   | absent            | defined by other flags | n/a        |                        |
+| `.0` | suffix   | absent            | defined by other flags | `.`        | `ID.hri`               |
+| `.1` | absent   | added             | absent                 | n/a        | `IDchecksum`           |
+| `.2` | absent   | added             | absent                 | n/a        | chunk(`ID`)            |
+| `.3` | absent   | added             | absent                 | n/a        | chunk(`IDchecksum`)    |
+| `.`N | reserved |
+| A`<` | prefix   | absent            | defined by other flags | `A`        | `hri`A`ID`             |
+| A`^` | prefix   | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
+| A`>` | suffix   | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
 
 _<sup>*</sup> added if no mnemonic flags are given_
 
@@ -135,13 +139,13 @@ _<sup>*</sup> added if no mnemonic flags are given_
 
 The presence and position of mnemonic is defined by alternative and sign flags:
 
-| Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
-|------|--------|-------------------|------------------------|------------|------------------------|
-| none | -      | defined by HRI flags | absent              | n/a        |                        |
-| `#`  | -      | -                 | suffix (dashed)        | `#`        | `ID#solo-lemur-wishes` |
-| `0`  | -      | -                 | prefix (capitalized)   | `0`        | `SoloLemurWishes0ID`   |
-| `-`  | -      | -                 | prefix (dashes)        | `-`        | `solo-lemur-wishes-ID` |
-| `+`  | -      | -                 | prefix (underscored)   | `_`        | `solo_lemur_wishes_ID` |
+| Flag | HRI    | Checksum             | Mnemonic             | Separators | Example                |
+|------|--------|----------------------|----------------------|------------|------------------------|
+| none | -      | defined by HRI flags | absent               | n/a        |                        |
+| `#`  | -      | -                    | suffix (dashed)      | `#`        | `ID#solo-lemur-wishes` |
+| `0`  | -      | -                    | prefix (capitalized) | `0`        | `SoloLemurWishes0ID`   |
+| `-`  | -      | -                    | prefix (dashes)      | `-`        | `solo-lemur-wishes-ID` |
+| `+`  | -      | -                    | prefix (underscored) | `_`        | `solo_lemur_wishes_ID` |
 
 If width is given, it is used to place multiple fill characters between the
 value and HRI.
