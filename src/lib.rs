@@ -23,7 +23,7 @@
 
 use std::error::Error;
 use std::fmt;
-use std::fmt::{Alignment, Display, Formatter};
+use std::fmt::{Alignment, Display, Formatter, Write};
 
 use base58::{FromBase58, FromBase58Error, ToBase58};
 use sha2::Digest;
@@ -37,20 +37,55 @@ pub enum MnemonicCase {
     Snake,
 }
 
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
+pub struct Chunking {
+    pub positions: &'static [u8],
+    pub separator: char,
+}
+
+impl Chunking {
+    pub const fn new(positions: &'static [u8], separator: char) -> Self {
+        Chunking {
+            positions,
+            separator,
+        }
+    }
+}
+
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Baid58<const LEN: usize> {
     hri: &'static str,
+    chunking: Option<Chunking>,
     payload: [u8; LEN],
 }
 
 impl<const LEN: usize> Baid58<LEN> {
+    fn new(hri: &'static str, payload: [u8; LEN], chunking: Option<Chunking>) -> Self {
+        debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
+        debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
+        Self {
+            hri,
+            chunking,
+            payload,
+        }
+    }
+
     /// # Panics
     ///
     /// If HRI static string is longer than [`HRI_MAX_LEN`]
-    pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self {
-        assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
-        assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
-        Self { hri, payload }
+    pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self { Self::new(hri, payload, None) }
+
+    pub fn with_chunks(
+        hri: &'static str,
+        payload: [u8; LEN],
+        chunk_pos: &'static [u8],
+        chunk_sep: char,
+    ) -> Self {
+        let chunking = Chunking {
+            positions: chunk_pos,
+            separator: chunk_sep,
+        };
+        Self::new(hri, payload, Some(chunking))
     }
 
     pub const fn human_identifier(&self) -> &'static str { self.hri }
@@ -88,7 +123,7 @@ impl<const LEN: usize> Baid58<LEN> {
 
 /// # Use of formatting flags:
 ///
-/// ## HRI and checksum
+/// ## HRI, checksum and chunking
 ///
 /// The presence of human-readable identifier and checksum is controlled by precision flag and by
 /// alignment flags. All the options can be combined with the mnemonic flags from the next section;
@@ -97,10 +132,14 @@ impl<const LEN: usize> Baid58<LEN> {
 /// | Flag | HRI    | Checksum          | Mnemonic               | Separators | Example                |
 /// |------|--------|-------------------|------------------------|------------|------------------------|
 /// | none | absent | absent            | defined by other flags | n/a        |                        |
-/// | `.N` | suffix | absent            | defined by other flags | `.`        | `ID.hri`               |
-/// | `A<` | prefix | absent            | defined by other flags | `A`        | `hri`A`ID`             |
-/// | `A^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
-/// | `A>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
+/// | `.0` | suffix | absent            | defined by other flags | `.`        | `ID.hri`               |
+/// | `.1` | absent | added             | absent                 | n/a        | `IDchecksum`           |
+/// | `.2` | absent | added             | absent                 | n/a        | chunk(`ID`)            |
+/// | `.3` | absent | added             | absent                 | n/a        | chunk(`IDchecksum`)    |
+/// | `.`N | reserved | | | | |
+/// | A`<` | prefix | absent            | defined by other flags | `A`        | `hri`A`ID`             |
+/// | A`^` | prefix | added<sup>*</sup> | defined by other flags | `A`        | `hri`A`IDchecksum`     |
+/// | A`>` | suffix | added<sup>*</sup> | defined by other flags | `A`        | `IDchecksum`A`hri`     |
 ///
 /// _<sup>*</sup> added if no mnemonic flags are given_
 ///
@@ -147,7 +186,11 @@ impl<const LEN: usize> Display for Baid58<LEN> {
 
         let fill = (0..=f.width().unwrap_or_default()).map(|_| f.fill()).collect();
         let hrp = match f.align() {
-            None if f.precision().is_some() => Hrp::Ext,
+            None if f.precision() == Some(0) => Hrp::Ext,
+            None if f.precision() == Some(1) || f.precision() == Some(3) => {
+                mnemo = Mnemo::Mixin;
+                Hrp::None
+            }
             None => Hrp::None,
             Some(Alignment::Center) if mnemo == Mnemo::None => {
                 mnemo = Mnemo::Mixin;
@@ -174,13 +217,36 @@ impl<const LEN: usize> Display for Baid58<LEN> {
             }
         }
 
-        if mnemo == Mnemo::Mixin {
+        let s = if mnemo == Mnemo::Mixin {
             let mut p = self.payload.to_vec();
             p.extend(self.checksum().to_le_bytes());
-            f.write_str(&p.to_base58())?;
+            p.to_base58()
         } else {
-            f.write_str(&self.payload.to_base58())?;
+            self.payload.to_base58()
         };
+        match (self.chunking, f.precision()) {
+            (Some(chunking), Some(2 | 3)) => {
+                debug_assert!(!chunking.positions.is_empty());
+                debug_assert_eq!(
+                    chunking.positions.iter().sum::<u8>() as usize,
+                    s.len(),
+                    "invalid Baid58 separator positions"
+                );
+
+                let mut iter = s.chars();
+                for len in chunking.positions {
+                    for ch in iter.by_ref().take(*len as usize) {
+                        f.write_char(ch)?;
+                    }
+                    if !iter.as_str().is_empty() {
+                        f.write_char(chunking.separator)?;
+                    }
+                }
+            }
+            _ => {
+                f.write_str(&s)?;
+            }
+        }
 
         if let Mnemo::Suffix = mnemo {
             write!(f, "#{}", &self.clone().mnemonic_with_case(MnemonicCase::Kebab))?;
@@ -425,6 +491,7 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
 
         let baid58 = Baid58 {
             hri: Self::HRI,
+            chunking: Self::CHUNKING,
             payload: payload.ok_or(Baid58ParseError::ValueAbsent(s.to_owned()))?,
         };
 
@@ -473,6 +540,24 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
         Ok(Self::from_baid58(baid58).expect("HRI is checked"))
     }
 
+    fn from_baid58_chunked_str(
+        s: &str,
+        prefix_sep: char,
+        suffix_sep: char,
+    ) -> Result<Self, Baid58ParseError> {
+        let chunking = Self::CHUNKING
+            .expect("FromBaid58::from_baid58_chunked_str must be used only on chunked types");
+        let prefix = format!("{}{prefix_sep}", Self::HRI);
+        let s = s.trim_start_matches(&prefix);
+        let s = prefix.chars().chain(
+            s.chars()
+                .take_while(|c| *c != suffix_sep)
+                .filter(|c| *c != chunking.separator)
+                .chain(s.chars().skip_while(|c| *c != suffix_sep)),
+        );
+        Self::from_baid58_str(&s.collect::<String>())
+    }
+
     fn from_baid58(baid: Baid58<LEN>) -> Result<Self, Baid58HriError> {
         if baid.hri != Self::HRI {
             Err(Baid58HriError {
@@ -487,11 +572,14 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
 
 pub trait ToBaid58<const LEN: usize> {
     const HRI: &'static str;
+    const CHUNKING: Option<Chunking> = None;
     // TODO: Uncomment once generic_const_exprs is out
     // const LEN: usize;
 
     fn to_baid58_payload(&self) -> [u8; LEN];
-    fn to_baid58(&self) -> Baid58<LEN> { Baid58::with(Self::HRI, self.to_baid58_payload()) }
+    fn to_baid58(&self) -> Baid58<LEN> {
+        Baid58::new(Self::HRI, self.to_baid58_payload(), Self::CHUNKING)
+    }
     fn to_baid58_string(&self) -> String { self.to_baid58().to_string() }
 }
 
@@ -517,18 +605,48 @@ mod test {
 
     impl ToBaid58<32> for Id {
         const HRI: &'static str = "id";
+        const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 8, 6], '-'));
         fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
     }
     impl FromBaid58<32> for Id {}
 
     impl Display for Id {
-        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { Display::fmt(&self.to_baid58(), f) }
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            let mut baid = self.to_baid58();
+            match f.precision() {
+                Some(2) => {}
+                Some(3) => {
+                    baid.chunking.as_mut().map(|c| c.positions = &[7, 9, 9, 9, 9, 7]);
+                }
+                _ => baid.chunking = None,
+            }
+            Display::fmt(&baid, f)
+        }
     }
 
     impl FromStr for Id {
         type Err = Baid58ParseError;
 
-        fn from_str(s: &str) -> Result<Self, Self::Err> { Id::from_baid58_str(s) }
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Id::from_baid58_str(s)
+                .or_else(|err| Id::from_baid58_chunked_str(&s, ':', '#').map_err(|_| err))
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_chunking() {
+        #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Default)]
+        struct Id([u8; 32]);
+        impl From<[u8; 32]> for Id {
+            fn from(value: [u8; 32]) -> Self { Id(value) }
+        }
+        impl ToBaid58<32> for Id {
+            const HRI: &'static str = "id";
+            const CHUNKING: Option<Chunking> = Some(Chunking::new(&[6, 8, 8, 8, 6], '-'));
+            fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
+        }
+        format!("{:.2}", Id::default().to_baid58());
     }
 
     #[test]
@@ -537,6 +655,11 @@ mod test {
 
         assert_eq!(&format!("{id}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
 
+        assert_eq!(&format!("{id:.0}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id");
+        assert_eq!(&format!("{id:.1}"), "2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
+        assert_eq!(&format!("{id:.2}"), "FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs");
+        assert_eq!(&format!("{id:.3}"), "2dzcCoX-9c65gi1Go-J1LFzb5Fc-Q9pAc8o3P-j8TpcH2mk-AdMLCpP");
+
         assert_eq!(&format!("{id::<}"), "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs");
         assert_eq!(&format!("{id::^}"), "id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP");
 
@@ -544,13 +667,12 @@ mod test {
             &format!("{id:#}"),
             "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
         );
-        assert_eq!(&format!("{id:.1}"), "FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id");
         assert_eq!(
             &format!("{id::^#}"),
             "id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim"
         );
         assert_eq!(
-            &format!("{id:-.1}"),
+            &format!("{id:-.0}"),
             "escape-cadet-swim-FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id"
         );
         assert_eq!(
@@ -568,6 +690,11 @@ mod test {
         let id = Id::new("some information");
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs").unwrap(), id);
 
+        assert_eq!(
+            Id::from_str("id:FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs").unwrap(),
+            id
+        );
+
         assert_eq!(Id::from_str("2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP").unwrap(), id);
         assert_eq!(
             Id::from_str("id:2dzcCoX9c65gi1GoJ1LFzb5FcQ9pAc8o3Pj8TpcH2mkAdMLCpP").unwrap(),
@@ -581,6 +708,11 @@ mod test {
         assert_eq!(Id::from_str("FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs.id").unwrap(), id);
         assert_eq!(
             Id::from_str("id:FWyisKGdBG31ddiNaUjnHi6tW8eYvnVW3T4zWtLhRDHs#escape-cadet-swim")
+                .unwrap(),
+            id
+        );
+        assert_eq!(
+            Id::from_str("id:FWyisK-GdBG31dd-iNaUjnHi-6tW8eYvn-VW3T4zWt-LhRDHs#escape-cadet-swim")
                 .unwrap(),
             id
         );
