@@ -23,7 +23,7 @@
 
 use std::error::Error;
 use std::fmt;
-use std::fmt::{Alignment, Display, Formatter};
+use std::fmt::{Alignment, Display, Formatter, Write};
 
 use base58::{FromBase58, FromBase58Error, ToBase58};
 use sha2::Digest;
@@ -37,20 +37,60 @@ pub enum MnemonicCase {
     Snake,
 }
 
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
+pub struct Chunking {
+    pub positions: &'static [u8],
+    pub separator: char,
+}
+
+impl Chunking {
+    pub fn new(positions: &'static [u8], separator: char) -> Self {
+        Chunking {
+            positions,
+            separator,
+        }
+    }
+}
+
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Baid58<const LEN: usize> {
     hri: &'static str,
+    chunking: Option<Chunking>,
     payload: [u8; LEN],
 }
 
 impl<const LEN: usize> Baid58<LEN> {
+    fn new(hri: &'static str, payload: [u8; LEN], chunking: Option<Chunking>) -> Self {
+        debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
+        debug_assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
+        Self {
+            hri,
+            chunking,
+            payload,
+        }
+    }
+
     /// # Panics
     ///
     /// If HRI static string is longer than [`HRI_MAX_LEN`]
-    pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self {
-        assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
-        assert!(LEN > HRI_MAX_LEN, "Baid58 id must be at least 9 bytes");
-        Self { hri, payload }
+    pub fn with(hri: &'static str, payload: [u8; LEN]) -> Self { Self::new(hri, payload, None) }
+
+    pub fn with_chunks(
+        hri: &'static str,
+        payload: [u8; LEN],
+        chunk_pos: &'static [u8],
+        chunk_sep: char,
+    ) -> Self {
+        debug_assert!(!chunk_pos.is_empty());
+        debug_assert!(
+            chunk_pos.iter().all(|pos| (*pos as usize) < LEN * 138 / 100 + 1),
+            "Baid58 separator positions must fit within string length"
+        );
+        let chunking = Chunking {
+            positions: chunk_pos,
+            separator: chunk_sep,
+        };
+        Self::new(hri, payload, Some(chunking))
     }
 
     pub const fn human_identifier(&self) -> &'static str { self.hri }
@@ -174,13 +214,26 @@ impl<const LEN: usize> Display for Baid58<LEN> {
             }
         }
 
-        if mnemo == Mnemo::Mixin {
+        let s = if mnemo == Mnemo::Mixin {
             let mut p = self.payload.to_vec();
             p.extend(self.checksum().to_le_bytes());
-            f.write_str(&p.to_base58())?;
+            p.to_base58()
         } else {
-            f.write_str(&self.payload.to_base58())?;
+            self.payload.to_base58()
         };
+        if let Some(chunking) = self.chunking {
+            let mut iter = s.chars();
+            for len in chunking.positions {
+                for ch in iter.by_ref().take(*len as usize) {
+                    f.write_char(ch)?;
+                }
+                if !iter.as_str().is_empty() {
+                    f.write_char(chunking.separator)?;
+                }
+            }
+        } else {
+            f.write_str(&s)?;
+        }
 
         if let Mnemo::Suffix = mnemo {
             write!(f, "#{}", &self.clone().mnemonic_with_case(MnemonicCase::Kebab))?;
@@ -425,6 +478,7 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
 
         let baid58 = Baid58 {
             hri: Self::HRI,
+            chunking: Self::CHUNKING,
             payload: payload.ok_or(Baid58ParseError::ValueAbsent(s.to_owned()))?,
         };
 
@@ -487,11 +541,14 @@ pub trait FromBaid58<const LEN: usize>: ToBaid58<LEN> + From<[u8; LEN]> {
 
 pub trait ToBaid58<const LEN: usize> {
     const HRI: &'static str;
+    const CHUNKING: Option<Chunking> = None;
     // TODO: Uncomment once generic_const_exprs is out
     // const LEN: usize;
 
     fn to_baid58_payload(&self) -> [u8; LEN];
-    fn to_baid58(&self) -> Baid58<LEN> { Baid58::with(Self::HRI, self.to_baid58_payload()) }
+    fn to_baid58(&self) -> Baid58<LEN> {
+        Baid58::new(Self::HRI, self.to_baid58_payload(), Self::CHUNKING)
+    }
     fn to_baid58_string(&self) -> String { self.to_baid58().to_string() }
 }
 
