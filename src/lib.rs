@@ -677,7 +677,7 @@ mod test {
     }
 
     impl ToBaid58<32> for Id {
-        const HRI: &'static str = "id";
+        const HRI: &'static str = "nym";
         const CHUNKING: Option<Chunking> = CHUNKING_32;
         fn to_baid58_payload(&self) -> [u8; 32] { self.0 }
     }
@@ -810,23 +810,19 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn attack() {
-        use std::sync::{Arc, Mutex};
-
-        let id = Id::new("some information");
         let mut handles = vec![];
-        let failures = Arc::new(Mutex::new(vec![]));
         for x in 0..24 {
-            let f = failures.clone();
             handles.push(std::thread::spawn(move || {
-                let id = id.to_baid58();
-                for salt in 0..0x4000000 {
-                    let av = Id::new(&format!("attack using salt {x} {salt}")).to_baid58();
-                    if id.checksum() == av.checksum() {
-                        f.lock()
-                            .unwrap()
-                            .push(format!("successful bruteforce attack on round {salt:#x}"));
+                for salt in 0..0x10_0000 {
+                    let salt = salt * x;
+                    let id = Id::new(&format!(
+                        "Dr Maxim Orlovsky, LNP/BP Standards Association. Salt {salt}",
+                    ))
+                    .to_baid58();
+                    let mnemo = id.mnemonic();
+                    if mnemo.contains("atomic") && mnemo.contains("nuclear") {
+                        panic!("{salt}: {id:<-.2}");
                     }
                 }
             }));
@@ -834,7 +830,6 @@ mod test {
         for handle in handles {
             handle.join().ok();
         }
-        assert!(failures.lock().unwrap().is_empty(), "Attacks succeeded:\n{failures:#?}");
     }
 }
 
